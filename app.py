@@ -1,63 +1,84 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.ensemble import IsolationForest
 
-st.title("🌦️ Weather Data Visualization Dashboard")
+st.set_page_config(page_title="Delhi Climate Visualization", layout="wide")
 
-# --- Generate Sample Dataset ---
-dates = pd.date_range(start='2021-01-01', end='2021-12-31')
-np.random.seed(0)
-df = pd.DataFrame({
-    "Date": dates,
-    "Min Temp": np.random.randint(15,25,len(dates)),
-    "Max Temp": np.random.randint(20,35,len(dates)),
-    "Humidity": np.random.randint(40,90,len(dates)),
-    "Rainfall": np.random.randint(0,20,len(dates)),
-    "Wind Speed": np.random.randint(5,20,len(dates))
-})
+st.title("🌦️ Delhi Climate Data Visualization")
+st.write("Analyze and smooth Delhi climate data using Moving Averages and Exponential Smoothing")
 
-# --- Sidebar Controls ---
-st.sidebar.header("Filters")
-show_temp = st.sidebar.checkbox("Show Temperature Trend", True)
-show_rainfall = st.sidebar.checkbox("Show Rainfall Distribution", True)
-show_humidity = st.sidebar.checkbox("Show Humidity Boxplot", False)
-show_correlation = st.sidebar.checkbox("Show Correlation Heatmap", False)
-show_anomalies = st.sidebar.checkbox("Show Anomaly Detection", False)
+# --- Upload CSV ---
+uploaded_file = st.file_uploader("Upload DailyDelhiClimateTrain.csv", type="csv")
+if uploaded_file is not None:
+    try:
+        # Try reading with default comma separator
+        df = pd.read_csv(uploaded_file)
+    except pd.errors.ParserError:
+        # If comma fails, try tab-separated
+        df = pd.read_csv(uploaded_file, sep='\t', engine='python')
+    
+    # Preview dataset
+    st.subheader("Dataset Preview")
+    st.dataframe(df.head())
 
-# --- Temperature Trend ---
-if show_temp:
-    st.subheader("🌡️ Temperature Trend")
-    st.line_chart(df.set_index("Date")[["Min Temp","Max Temp"]])
+    # --- Convert date column ---
+    if 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'])
+        df.set_index('date', inplace=True)
+    else:
+        st.error("No 'date' column found in CSV!")
+        st.stop()
 
-# --- Rainfall Distribution ---
-if show_rainfall:
-    st.subheader("🌧️ Rainfall Distribution")
-    fig, ax = plt.subplots()
-    sns.histplot(df["Rainfall"], bins=30, kde=True, ax=ax)
-    st.pyplot(fig)
+    # --- Select parameter ---
+    if 'meantemp' not in df.columns:
+        st.error("No 'meantemp' column found in CSV!")
+        st.stop()
 
-# --- Humidity Boxplot ---
-if show_humidity:
-    st.subheader("💧 Humidity Boxplot")
-    fig2, ax2 = plt.subplots()
-    sns.boxplot(y=df["Humidity"], ax=ax2)
+    option = 'meantemp'
+
+    # --- Raw Temperature Plot ---
+    st.subheader("Raw Temperature Data")
+    st.line_chart(df[option])
+
+    # --- Moving Averages ---
+    st.subheader("Moving Average Smoothing")
+    df['MA_7'] = df[option].rolling(window=7).mean()
+    df['MA_30'] = df[option].rolling(window=30).mean()
+
+    fig1, ax1 = plt.subplots(figsize=(10,5))
+    ax1.plot(df.index, df[option], label="Raw Temperature", alpha=0.5)
+    ax1.plot(df.index, df['MA_7'], label="7-day Moving Avg", color='orange')
+    ax1.plot(df.index, df['MA_30'], label="30-day Moving Avg", color='red')
+    ax1.set_xlabel("Date")
+    ax1.set_ylabel("Temperature (°C)")
+    ax1.set_title("Moving Average Smoothing")
+    ax1.legend()
+    st.pyplot(fig1)
+
+    # --- Exponential Smoothing ---
+    st.subheader("Exponential Smoothing")
+    df['Exp_Smooth'] = df[option].ewm(span=20, adjust=False).mean()
+
+    fig2, ax2 = plt.subplots(figsize=(10,5))
+    ax2.plot(df.index, df[option], label="Raw Temperature", alpha=0.5)
+    ax2.plot(df.index, df['Exp_Smooth'], label="Exponential Smoothing", color='green')
+    ax2.set_xlabel("Date")
+    ax2.set_ylabel("Temperature (°C)")
+    ax2.set_title("Exponential Smoothing of Temperature")
+    ax2.legend()
     st.pyplot(fig2)
 
-# --- Correlation Heatmap ---
-if show_correlation:
-    st.subheader("📊 Correlation Between Variables")
-    corr = df[["Min Temp","Max Temp","Humidity","Rainfall","Wind Speed"]].corr()
-    fig3, ax3 = plt.subplots()
-    sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax3)
+    # --- Seasonal Trends (Monthly Average) ---
+    st.subheader("Seasonal Trend (Monthly Average)")
+    df['Month'] = df.index.month
+    monthly_avg = df.groupby('Month')[option].mean()
+
+    fig3, ax3 = plt.subplots(figsize=(8,5))
+    ax3.plot(monthly_avg.index, monthly_avg.values, marker='o', color='purple')
+    ax3.set_xlabel("Month")
+    ax3.set_ylabel("Average Temperature (°C)")
+    ax3.set_title("Seasonal Temperature Trend in Delhi")
     st.pyplot(fig3)
 
-# --- Anomaly Detection ---
-if show_anomalies:
-    st.subheader("⚠️ Unusual Weather Days (Anomalies)")
-    iso = IsolationForest(contamination=0.02)
-    df["Anomaly"] = iso.fit_predict(df[["Max Temp","Min Temp","Humidity","Rainfall"]])
-    anomalies = df[df["Anomaly"]==-1]
-    st.dataframe(anomalies[["Date","Max Temp","Min Temp","Humidity","Rainfall"]])
+else:
+    st.info("Please upload the DailyDelhiClimateTrain.csv file to visualize data.")
